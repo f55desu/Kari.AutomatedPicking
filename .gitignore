@@ -1,0 +1,22 @@
+.claude
+.vscode
+build
+dist
+wb_otbor/__pycache__
+wb-photo-report/__pycache__
+wb_photo_report_*
+wb_photo_report.env*
+*.env
+wb-photo-report.zip
+Отбор*
+Otbor*
+otbor*
+photo_cache.xlsx
+Query result.xlsx
+*articuls.txt
+*log_time.txt
+wb_photo_report/testing.ipynb
+testing.ipynb
+Unique Atrs.xlsx
+*.exe
+*.spec
