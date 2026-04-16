@@ -96,7 +96,7 @@ articles_in_period AS (
     SELECT DISTINCT itemid AS [Артикул]
     FROM [DBPartners].[dbo].[WblmRepGetStockWildberries]
     WHERE dt BETWEEN '{start_str}' AND '{end_str}'
-      AND qte > 0
+      --AND qte > 0
     UNION
     SELECT DISTINCT wb_n.ITEMID AS [Артикул]
     FROM [DBReport].[mp].[wb_sales_funnel_lk] mk

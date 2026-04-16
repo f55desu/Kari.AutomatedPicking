@@ -71,7 +71,9 @@ GUI_EXE_NAME = "wb_otbor_gui.exe"
 # Относительный путь к CLI-скрипту (для запуска через python)
 RUNNER_SCRIPT_NAME = "run_otbor.py"
 
-F55_ID = 421762273
+F55_ID = "421762273"
+TALDYKIN_ID = "6917999439"
+ANALYTICS_AUTO = "-5183358607"
 
 def find_runner_exe() -> Path | None:
     """

@@ -76,7 +76,8 @@ def run_full_pipeline(use_photo_cache: bool = False,
     # 4. Telegram
     log("=" * 60)
     log("[4/4] Отправка в Telegram...")
-    telegram_bot_sender.telegram_sendFile(file_path=output_path, chat_id=config.F55_ID, message=f"Ваш файл отбора на {end_date.strftime('%d.%m')}")
+    telegram_bot_sender.telegram_sendFile(file_path=output_path, chat_id=config.TALDYKIN_ID, message=f"Ваш файл отбора WB на {end_date.strftime('%d.%m')}")
+    # telegram_bot_sender.telegram_sendFile(file_path=output_path, chat_id=config.ANALYTICS_AUTO, message=f"Ваш файл отбора WB на {end_date.strftime('%d.%m')}")
 
     elapsed = time.time() - t_start
     log("=" * 60)
