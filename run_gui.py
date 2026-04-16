@@ -31,8 +31,10 @@ from wb_otbor import config, scheduler
 from wb_otbor.pipeline import run_full_pipeline
 
 
-CLI_SCRIPT = SCRIPT_DIR / 'run_otbor.py'
-BUILD_SCRIPT = SCRIPT_DIR / 'build_exe.py'
+# Используем config.BASE_DIR — он корректно резолвится и из python, и из exe
+# (SCRIPT_DIR через __file__ в frozen-режиме указывает на _MEIPASS, а не на проект)
+CLI_SCRIPT = config.BASE_DIR / 'run_otbor.py'
+BUILD_SCRIPT = config.BASE_DIR / 'build_exe.py'
 
 
 class OtborGUI:
@@ -95,12 +97,16 @@ class OtborGUI:
 
         exe_btn_row = ttk.Frame(exe_frame)
         exe_btn_row.pack(fill='x', pady=(6, 0))
-        ttk.Button(exe_btn_row, text="🔨 Собрать EXE (PyInstaller)",
-                   command=self.on_build_exe).pack(side='left')
+
+        self.build_btn = ttk.Button(
+            exe_btn_row, text="🔨 Собрать EXE (PyInstaller)",
+            command=self.on_build_exe,
+        )
+        self.build_btn.pack(side='left')
         ttk.Button(exe_btn_row, text="⟳ Обновить статус",
                    command=self.refresh_runner_status).pack(side='left', padx=(8, 0))
         ttk.Label(exe_btn_row,
-                  text="  Требует: pip install pyinstaller",
+                  text="  Требует Python + PyInstaller в PATH",
                   foreground='#666', font=('Segoe UI', 8)).pack(side='left')
 
         # --- Секция "Планировщик" ------------------------------------------
@@ -253,25 +259,58 @@ class OtborGUI:
                 f"   Для запуска на ПК без Python — нажмите 'Собрать EXE' ниже."
             )
 
+    @staticmethod
+    def _find_python() -> str | None:
+        """
+        Ищет python.exe на машине. Нужен для сборки EXE из frozen-GUI,
+        где sys.executable указывает на сам exe, а не на python.
+        """
+        import shutil
+        # 1. Если не frozen — sys.executable и есть python
+        if not getattr(sys, 'frozen', False):
+            return sys.executable
+        # 2. py.exe — Windows Python Launcher (ставится вместе с Python)
+        py = shutil.which('py')
+        if py:
+            return py
+        # 3. python.exe в PATH
+        python = shutil.which('python')
+        if python:
+            return python
+        # 4. python3.exe
+        python3 = shutil.which('python3')
+        if python3:
+            return python3
+        return None
+
     def on_build_exe(self):
+        python = self._find_python()
+        if not python:
+            messagebox.showwarning(
+                "Python не найден",
+                "Для сборки EXE нужен Python с PyInstaller.\n\n"
+                "Установите Python и убедитесь, что он добавлен в PATH,\n"
+                "либо запустите:  python run_gui.py")
+            return
         if self._worker and self._worker.is_alive():
             messagebox.showinfo("Занято", "Другая операция уже выполняется.")
             return
         if not messagebox.askyesno(
                 "Сборка EXE",
-                "Это займёт 2-5 минут. Продолжить?\n\n"
-                "Требуется установленный PyInstaller (будет поставлен автоматически)."):
+                f"Будет использован Python:\n{python}\n\n"
+                "Это займёт 2-5 минут. Продолжить?\n"
+                "(PyInstaller будет поставлен автоматически, если отсутствует)"):
             return
 
         self.log("=" * 60)
-        self.log("Запуск сборки EXE через build_exe.py...")
+        self.log(f"Запуск сборки EXE через build_exe.py (python: {python})...")
 
         def worker():
             try:
                 proc = subprocess.Popen(
-                    [sys.executable, str(BUILD_SCRIPT), '--clean'],
+                    [python, str(BUILD_SCRIPT), '--target', 'runner', '--clean'],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    cwd=str(SCRIPT_DIR), text=True, encoding='utf-8',
+                    cwd=str(config.BASE_DIR), text=True, encoding='utf-8',
                     errors='replace', creationflags=0x08000000,  # CREATE_NO_WINDOW
                 )
                 for line in proc.stdout:

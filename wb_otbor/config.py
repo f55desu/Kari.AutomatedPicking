@@ -64,8 +64,9 @@ MIN_SHOWS = 1200
 # Планировщик задач
 TASK_NAME = "WB_Otbor_AutoRun"
 
-# Имя exe-файла после сборки через build_exe.py
+# Имена exe-файлов после сборки через build_exe.py
 RUNNER_EXE_NAME = "wb_otbor_runner.exe"
+GUI_EXE_NAME = "wb_otbor_gui.exe"
 
 # Относительный путь к CLI-скрипту (для запуска через python)
 RUNNER_SCRIPT_NAME = "run_otbor.py"
