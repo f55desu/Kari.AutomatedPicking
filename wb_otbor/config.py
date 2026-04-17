@@ -54,7 +54,7 @@ SQL_DB_REPORT = 'DBReport'
 # BUSINESS_GROUPS = ('Одежда для детей', 'Одежда и аксессуары')
 COLLECTION = '2026SS'
 PERIOD_DAYS = 7           # длина периода
-OFFSET_FROM_TODAY = 4     # конец периода = сегодня - N дней
+OFFSET_FROM_TODAY = 1     # конец периода = сегодня - N дней
 
 # Пороги для Технички и Отбора
 MIN_STOCK = 10
