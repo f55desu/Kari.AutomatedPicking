@@ -44,6 +44,8 @@ COMMON_HIDDEN_IMPORTS = [
     'wb_otbor.excel_writer',
     'wb_otbor.pipeline',
     'wb_otbor.scheduler',
+    'wb_otbor.settings',
+    'wb_otbor.logging_setup',
     'wb_otbor.telegram_bot_sender',
 ]
 
@@ -64,6 +66,7 @@ TARGETS = {
             'telegram.request',
             'httpx',
             'httpcore',
+            'wb_otbor.gui_settings',  # окно настроек импортируется лениво
         ],
     },
 }

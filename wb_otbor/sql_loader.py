@@ -4,6 +4,11 @@ import pandas as pd
 from sqlalchemy import create_engine
 
 from . import config
+from . import settings as app_settings
+from .logging_setup import get_logger
+
+
+logger = get_logger('sql_loader')
 
 
 def connect_to_sql(server: str, database: str):
@@ -11,7 +16,13 @@ def connect_to_sql(server: str, database: str):
         f"mssql+pyodbc://{server}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
         "&trusted_connection=yes"
     )
-    return create_engine(connection_string)
+    try:
+        engine = create_engine(connection_string)
+        logger.debug(f"Engine создан: {server}/{database}")
+        return engine
+    except Exception as exc:
+        logger.exception(f"Не удалось создать SQLAlchemy engine для {server}/{database}")
+        raise
 
 
 def get_date_range(offset_days: int = None, period_days: int = None):
@@ -19,19 +30,71 @@ def get_date_range(offset_days: int = None, period_days: int = None):
     Возвращает (start_date, end_date).
     end_date = today - offset_days
     start_date = end_date - (period_days - 1)
+
+    Если параметры не переданы — читает их из settings.json
+    (с фолбэком на config при отсутствии файла).
     """
-    offset_days = offset_days if offset_days is not None else config.OFFSET_FROM_TODAY
-    period_days = period_days if period_days is not None else config.PERIOD_DAYS
+    s = app_settings.load()
+    if offset_days is None:
+        offset_days = int(s.get('offset_from_today', config.OFFSET_FROM_TODAY))
+    if period_days is None:
+        period_days = int(s.get('period_days', config.PERIOD_DAYS))
     end = date.today() - timedelta(days=offset_days)
     start = end - timedelta(days=period_days - 1)
     return start, end
+
+
+def load_unique_filter_values() -> dict[str, list[str]]:
+    """
+    Выгружает уникальные значения для всех фильтров из справочника.
+    Используется GUI-настройками для заполнения dropdown-списков.
+    """
+    logger.info("Запрос уникальных значений фильтров из справочника...")
+    try:
+        engine = connect_to_sql(config.SQL_SERVER, config.SQL_DB_PARTNERS)
+        query = """
+        SELECT DISTINCT
+            q.businessgroupru                         AS [Бизнес-группа],
+            q.DEPARTMENTIDRU                          AS [Розничный отдел],
+            CONCAT(q.retailgroup,' ',q.grpnameru)     AS [Группа],
+            q.KAR_SEASONCODERU                        AS [Сезон],
+            q.trademark                               AS [Бренд],
+            emp.manager_name                          AS [Ответственный за группу],
+            q.KAR_ACTUALCOLLECTION                    AS [Коллекция]
+        FROM [DBReport].[dbo].[GuideAssortiment] q
+        INNER JOIN [DynamicsAx1].[dbo].[INVENTTABLE] c
+            ON q.itemid = c.itemid AND c.dataareaid = 'vrt' AND c.itemgroupid = 'Goods'
+        -- Ответственный за группу: из матрицы QlikView (retailgroup = hierarchy_full)
+        LEFT JOIN (
+            SELECT hierarchy_full, MAX(manager_name) AS manager_name
+            FROM [DBReport].[mp].[employers_from_QlikView]
+            WHERE manager_name IS NOT NULL
+            GROUP BY hierarchy_full
+        ) emp ON q.retailgroup = emp.hierarchy_full
+        """
+        df = pd.read_sql(query, engine)
+        result: dict[str, list[str]] = {}
+        for col in df.columns:
+            vals = [str(v).strip() for v in df[col].dropna().unique()
+                    if str(v).strip()]
+            result[col] = sorted(set(vals))
+        sizes = ', '.join(f"{k}={len(v)}" for k, v in result.items())
+        logger.info(f"Уникальные значения получены: {sizes}")
+        return result
+    except Exception as exc:
+        logger.exception("Ошибка при выгрузке уникальных значений фильтров")
+        raise
 
 
 def build_query(start_date, end_date) -> str:
     start_str = start_date.strftime('%Y-%m-%d')
     end_str = end_date.strftime('%Y-%m-%d')
     end_label = end_date.strftime('%d.%m')
-    # bg_list = ", ".join(f"N'{g}'" for g in config.BUSINESS_GROUPS)
+
+    # Динамические фильтры из settings.json (Бизнес-группа, Группа, Сезон и т.д.)
+    filters = app_settings.get_filters()
+    filter_where = app_settings.build_filter_where(filters, indent='      ')
+    filter_clause = ('\n      AND ' + filter_where) if filter_where else ''
 
     return f"""
 WITH ref AS (
@@ -43,7 +106,7 @@ WITH ref AS (
         CONCAT(q.retailgroup,' ',q.grpnameru)   AS [Группа],
         q.KAR_SEASONCODERU                      AS [Сезон],
         q.trademark                             AS [Бренд],
-        q.buyer                                 AS [Ответственный за группу],
+        emp.manager_name                        AS [Ответственный за группу],
         q.KAR_ACTUALCOLLECTION                  AS [Коллекция]
     FROM [DBReport].[dbo].[GuideAssortiment] q
     INNER JOIN [DynamicsAx1].[dbo].[INVENTITEMBARCODE] a
@@ -52,8 +115,17 @@ WITH ref AS (
         ON a.inventdimid = b.inventdimid AND b.dataareaid = 'vrt'
     INNER JOIN [DynamicsAx1].[dbo].[INVENTTABLE] c
         ON q.itemid = c.itemid AND c.dataareaid = 'vrt' AND c.itemgroupid = 'Goods'
-    WHERE q.businessgroupru IN (N'Одежда для детей', N'Одежда и аксессуары')
-      AND q.KAR_ACTUALCOLLECTION = '{config.COLLECTION}'
+    -- Ответственный за группу: из матрицы маппинга QlikView.
+    -- Связка: retailgroup (3-значный код) == hierarchy_full.
+    -- MAX(manager_name) на случай, если одной группе назначено несколько менеджеров
+    -- (разные бренды → ref.DISTINCT + attrs.MAX всё равно схлопнут в одну строку).
+    LEFT JOIN (
+        SELECT hierarchy_full, MAX(manager_name) AS manager_name
+        FROM [DBReport].[mp].[employers_from_QlikView]
+        WHERE manager_name IS NOT NULL
+        GROUP BY hierarchy_full
+    ) emp ON q.retailgroup = emp.hierarchy_full
+    WHERE 1=1{filter_clause}
 ),
 total_sizes AS (
     -- Одноразмерные товары (сумки, ремни, аксессуары) хранятся с NULL/пустым
@@ -193,6 +265,10 @@ def build_query_ref_based(start_date, end_date) -> str:
     end_str = end_date.strftime('%Y-%m-%d')
     end_label = end_date.strftime('%d.%m')
 
+    filters = app_settings.get_filters()
+    filter_where = app_settings.build_filter_where(filters, indent='      ')
+    filter_clause = ('\n      AND ' + filter_where) if filter_where else ''
+
     return f"""
 WITH ref AS (
     SELECT DISTINCT
@@ -203,7 +279,7 @@ WITH ref AS (
         CONCAT(q.retailgroup,' ',q.grpnameru)   AS [Группа],
         q.KAR_SEASONCODERU                      AS [Сезон],
         q.trademark                             AS [Бренд],
-        q.buyer                                 AS [Ответственный за группу],
+        emp.manager_name                        AS [Ответственный за группу],
         q.KAR_ACTUALCOLLECTION                  AS [Коллекция]
     FROM [DBReport].[dbo].[GuideAssortiment] q
     INNER JOIN [DynamicsAx1].[dbo].[INVENTITEMBARCODE] a
@@ -212,8 +288,14 @@ WITH ref AS (
         ON a.inventdimid = b.inventdimid AND b.dataareaid = 'vrt'
     INNER JOIN [DynamicsAx1].[dbo].[INVENTTABLE] c
         ON q.itemid = c.itemid AND c.dataareaid = 'vrt' AND c.itemgroupid = 'Goods'
-    WHERE q.businessgroupru IN (N'Одежда для детей', N'Одежда и аксессуары')
-      AND q.KAR_ACTUALCOLLECTION = '{config.COLLECTION}'
+    -- Ответственный за группу: из матрицы QlikView (retailgroup = hierarchy_full)
+    LEFT JOIN (
+        SELECT hierarchy_full, MAX(manager_name) AS manager_name
+        FROM [DBReport].[mp].[employers_from_QlikView]
+        WHERE manager_name IS NOT NULL
+        GROUP BY hierarchy_full
+    ) emp ON q.retailgroup = emp.hierarchy_full
+    WHERE 1=1{filter_clause}
 ),
 -- Атрибуты: одна строка на артикул (основа отчёта)
 attrs AS (
@@ -265,7 +347,7 @@ agg_sizes AS (
             1
         ) AS [Размеров на агрегаторе]
     FROM [DBPartners].[dbo].[WblmRepGetStockWildberries] s
-    WHERE s.dt = '{end_str}' AND s.qte > 0
+    WHERE s.dt = '{end_str}' --AND s.qte > 0
     GROUP BY s.itemid
 ),
 -- Маркетинг за период
@@ -322,8 +404,15 @@ ORDER BY a.[Артикул]
 
 def load_base_dataframe(start_date, end_date) -> pd.DataFrame:
     """Выполняет SQL-запрос и возвращает df_base."""
-    engine = connect_to_sql(config.SQL_SERVER, config.SQL_DB_PARTNERS)
-    # query = build_query(start_date, end_date)           # старый: от стока/маркетинга
-    query = build_query_ref_based(start_date, end_date)   # новый: от справочника
-    df = pd.read_sql(query, engine)
-    return df
+    logger.info(f"Загрузка df_base: {start_date} — {end_date}")
+    try:
+        engine = connect_to_sql(config.SQL_SERVER, config.SQL_DB_PARTNERS)
+        # query = build_query(start_date, end_date)         # от стока/маркетинга
+        query = build_query_ref_based(start_date, end_date) # от справочника
+        logger.debug(f"SQL-запрос построен ({len(query)} символов)")
+        df = pd.read_sql(query, engine)
+        logger.info(f"df_base получен: {len(df)} строк, {len(df.columns)} столбцов")
+        return df
+    except Exception:
+        logger.exception("Ошибка при выполнении load_base_dataframe")
+        raise

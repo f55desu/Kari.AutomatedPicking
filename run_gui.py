@@ -29,6 +29,13 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from wb_otbor import config, scheduler
 from wb_otbor.pipeline import run_full_pipeline
+from wb_otbor.gui_settings import SettingsWindow
+from wb_otbor.logging_setup import setup_logging, get_logger
+
+# Инициализируем лог-файл сразу при старте GUI
+setup_logging()
+_gui_logger = get_logger('gui')
+_gui_logger.info("GUI запущен.")
 
 
 # Используем config.BASE_DIR — он корректно резолвится и из python, и из exe
@@ -84,6 +91,11 @@ class OtborGUI:
         ttk.Button(
             buttons_row, text="Открыть папку проекта",
             command=self.on_open_folder,
+        ).pack(side='left', padx=(8, 0))
+
+        ttk.Button(
+            buttons_row, text="⚙ Настройки",
+            command=self.on_open_settings,
         ).pack(side='left', padx=(8, 0))
 
         # --- Секция "Сборка EXE" -------------------------------------------
@@ -224,7 +236,25 @@ class OtborGUI:
 
     def on_open_folder(self):
         import os
-        os.startfile(str(config.BASE_DIR))
+        try:
+            os.startfile(str(config.BASE_DIR))
+            _gui_logger.info(f"Открыта папка проекта: {config.BASE_DIR}")
+        except Exception:
+            _gui_logger.exception("Не удалось открыть папку проекта")
+            messagebox.showerror("Ошибка", f"Не удалось открыть {config.BASE_DIR}")
+
+    def on_open_settings(self):
+        """Открывает окно настроек фильтров и параметров."""
+        try:
+            SettingsWindow(
+                self.root,
+                log=self.log,
+                on_applied=lambda: self.log("Настройки обновлены. Применятся при следующем запуске."),
+            )
+            _gui_logger.info("Окно настроек открыто.")
+        except Exception as exc:
+            _gui_logger.exception("Не удалось открыть окно настроек")
+            messagebox.showerror("Ошибка", f"Не удалось открыть окно настроек:\n{exc}")
 
     # ------------------------- Планировщик -------------------------------
 
@@ -232,6 +262,8 @@ class OtborGUI:
         try:
             flags = [v.get() for v in self.day_vars]
             time_str = self.time_var.get().strip()
+            _gui_logger.info(f"on_save_task: flags={flags}, time={time_str}, "
+                              f"use_cache={self.task_use_cache_var.get()}")
             scheduler.create_or_update_task(
                 days_flags=flags,
                 time_str=time_str,
@@ -243,6 +275,7 @@ class OtborGUI:
             self.log(f"Задача создана/обновлена: {runner_cmd}")
             self.refresh_task_status()
         except Exception as exc:
+            _gui_logger.exception("Ошибка on_save_task")
             messagebox.showerror("Ошибка", str(exc))
             self.log(f"Ошибка сохранения задачи: {exc}")
 
@@ -338,23 +371,27 @@ class OtborGUI:
             action = "включена" if enabled else "отключена"
             messagebox.showinfo("Готово", f"Задача {action}.")
             self.log(f"Задача {action}.")
+            _gui_logger.info(f"Задача {action} через GUI.")
             self.refresh_task_status()
         except Exception as exc:
+            _gui_logger.exception("Ошибка on_toggle_task")
             messagebox.showerror("Ошибка", str(exc))
 
     def on_delete_task(self):
-        if not scheduler.task_exists():
-            messagebox.showinfo("Нет задачи", "Задача отсутствует в планировщике.")
-            self.refresh_task_status()
-            return
-        if not messagebox.askyesno("Подтверждение",
-                                    "Удалить задачу из планировщика?"):
-            return
         try:
+            if not scheduler.task_exists():
+                messagebox.showinfo("Нет задачи", "Задача отсутствует в планировщике.")
+                self.refresh_task_status()
+                return
+            if not messagebox.askyesno("Подтверждение",
+                                        "Удалить задачу из планировщика?"):
+                return
             scheduler.delete_task()
             self.log("Задача удалена из Task Scheduler.")
+            _gui_logger.info("Задача удалена через GUI.")
             self.refresh_task_status()
         except Exception as exc:
+            _gui_logger.exception("Ошибка on_delete_task")
             messagebox.showerror("Ошибка", str(exc))
 
     def refresh_task_status(self):

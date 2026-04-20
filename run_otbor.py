@@ -20,6 +20,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from wb_otbor.pipeline import run_full_pipeline
+from wb_otbor.logging_setup import setup_logging, get_logger
 
 
 def _make_logger(log_file: Path | None):
@@ -50,6 +51,14 @@ def main() -> int:
                         help='Путь к файлу лога. По умолчанию только stdout.')
     args = parser.parse_args()
 
+    # Инициализируем централизованное логирование (файл logs/wb_otbor.log)
+    setup_logging()
+    root_logger = get_logger('cli')
+    root_logger.info("=" * 70)
+    root_logger.info(
+        f"run_otbor.py старт. use_cache={args.use_cache}, output_dir={args.output_dir}"
+    )
+
     log, fh = _make_logger(args.log_file)
     try:
         log(f"Старт. use_cache={args.use_cache}, output_dir={args.output_dir}")
@@ -59,10 +68,12 @@ def main() -> int:
             log=log,
         )
         log(f"УСПЕХ: {output_path}")
+        root_logger.info(f"run_otbor.py УСПЕХ: {output_path}")
         return 0
     except Exception as exc:
         log(f"ОШИБКА: {exc}")
         log(traceback.format_exc())
+        root_logger.exception("run_otbor.py ОШИБКА (верхний уровень)")
         return 1
     finally:
         if fh:

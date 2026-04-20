@@ -20,3 +20,6 @@ testing.ipynb
 Unique Atrs.xlsx
 *.exe
 *.spec
+settings.json
+*.xlsx
+*.log

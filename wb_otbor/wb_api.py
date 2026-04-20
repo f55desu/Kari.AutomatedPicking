@@ -11,43 +11,58 @@ from ._wb_content import (
     count_photos,
     REQUEST_DELAY_SECONDS,
 )
+from .logging_setup import get_logger
+
+
+logger = get_logger('wb_api')
 
 
 def save_photo_cache(photo_counts: dict, cache_path: Path = None) -> Path:
     """Сохраняет dict {str(nmID) -> raw photo count} в xlsx. Возвращает путь."""
     cache_path = Path(cache_path) if cache_path else config.PHOTO_CACHE_FILE
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
 
-    wb_cache = Workbook()
-    ws = wb_cache.active
-    ws.title = "photo_counts"
-    ws.append(["Артикул WB", "Количество фото"])
+        wb_cache = Workbook()
+        ws = wb_cache.active
+        ws.title = "photo_counts"
+        ws.append(["Артикул WB", "Количество фото"])
 
-    def _sort_key(pair):
-        k = pair[0]
-        return int(k) if k.isdigit() else 0
+        def _sort_key(pair):
+            k = pair[0]
+            return int(k) if k.isdigit() else 0
 
-    for nm_id, count in sorted(photo_counts.items(), key=_sort_key):
-        ws.append([nm_id, int(count)])
-    wb_cache.save(cache_path)
-    return cache_path.resolve()
+        for nm_id, count in sorted(photo_counts.items(), key=_sort_key):
+            ws.append([nm_id, int(count)])
+        wb_cache.save(cache_path)
+        logger.info(f"Фото-кэш сохранён: {cache_path.resolve()} ({len(photo_counts)} записей)")
+        return cache_path.resolve()
+    except Exception:
+        logger.exception(f"Не удалось сохранить фото-кэш в {cache_path}")
+        raise
 
 
 def load_photo_cache(cache_path: Path = None) -> dict:
     """Загружает dict {str(nmID) -> raw photo count} из xlsx."""
     cache_path = cache_path or config.PHOTO_CACHE_FILE
     if not cache_path.exists():
+        logger.error(f"Фото-кэш не найден: {cache_path}")
         raise FileNotFoundError(f"Кэш не найден: {cache_path}")
-    wb_cache = load_workbook(cache_path)
-    ws = wb_cache.active
-    result = {}
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[0] is None:
-            continue
-        nm_id = str(row[0]).strip()
-        count = int(row[1]) if row[1] is not None else 0
-        result[nm_id] = count
-    return result
+    try:
+        wb_cache = load_workbook(cache_path)
+        ws = wb_cache.active
+        result = {}
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if row[0] is None:
+                continue
+            nm_id = str(row[0]).strip()
+            count = int(row[1]) if row[1] is not None else 0
+            result[nm_id] = count
+        logger.info(f"Фото-кэш загружен: {cache_path} ({len(result)} записей)")
+        return result
+    except Exception:
+        logger.exception(f"Ошибка при чтении фото-кэша {cache_path}")
+        raise
 
 
 def fetch_photos_from_api(target_nm_ids, timeout: int = 60, log=print) -> dict:
@@ -136,22 +151,31 @@ def get_photo_counts(target_nm_ids, use_cache: bool = False, log=print) -> dict:
     Основная точка входа.
 
       use_cache=True  + кэш существует  → читаем из xlsx-кэша, без обращения к API.
-      use_cache=True  + кэша НЕТ         → обращаемся к API и обязательно сохраняем кэш
-                                            (защита от ошибки пользователя).
-      use_cache=False                    → обращаемся к API и обязательно сохраняем кэш.
-
-    После любого обращения к WB API кэш СОХРАНЯЕТСЯ БЕЗУСЛОВНО.
+      use_cache=True  + кэша НЕТ         → API + сохранение кэша (защита от ошибки).
+      use_cache=False                    → API + сохранение кэша.
     """
     cache_path = config.PHOTO_CACHE_FILE
 
     if use_cache:
         if cache_path.exists():
             log(f"Читаем фото-кэш: {cache_path}")
-            return load_photo_cache()
-        log(f"Кэш не найден ({cache_path}) — запрашиваем через WB API.")
+            logger.info(f"get_photo_counts: используем кэш {cache_path}")
+            try:
+                return load_photo_cache()
+            except Exception as exc:
+                logger.exception("Кэш повреждён — падаем на API")
+                log(f"Кэш повреждён ({exc}), запрашиваем через API.")
+        else:
+            log(f"Кэш не найден ({cache_path}) — запрашиваем через WB API.")
+            logger.info(f"Кэш отсутствует, use_cache=True → переключаемся на API")
 
     log("Запрос количества фото через WB API...")
-    results = fetch_photos_from_api(target_nm_ids, log=log)
+    logger.info(f"get_photo_counts: WB API для {len(target_nm_ids)} nmID")
+    try:
+        results = fetch_photos_from_api(target_nm_ids, log=log)
+    except Exception:
+        logger.exception("Ошибка fetch_photos_from_api")
+        raise
 
     # Сохраняем кэш БЕЗУСЛОВНО после каждого обращения к API
     try:
@@ -159,7 +183,6 @@ def get_photo_counts(target_nm_ids, use_cache: bool = False, log=print) -> dict:
         log(f"✓ Фото-кэш сохранён: {saved_to} ({len(results)} записей)")
     except Exception as exc:
         log(f"⚠ ВНИМАНИЕ: не удалось сохранить фото-кэш: {exc}")
-        import traceback
-        log(traceback.format_exc())
+        logger.exception("Не удалось сохранить фото-кэш — продолжаем без него")
 
     return results

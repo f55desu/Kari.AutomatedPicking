@@ -10,15 +10,20 @@ def _resolve_base_dir() -> Path:
       - В frozen-режиме (PyInstaller onefile/onedir): директория, где лежит exe.
         Это позволяет класть Отбор date.xlsx, wb-photo-report/.env и photo_cache.xlsx
         РЯДОМ с exe, а не внутри временной _MEIPASS.
+
+    Используем .absolute() вместо .resolve(), чтобы СОХРАНИТЬ исходный UNC-путь
+    (\\\\kari.local\\public\\...). .resolve() канонизирует UNC к форме \\\\fs05\\all\\...,
+    и планировщик задач затем прописывает такой путь, к которому у его учётки
+    доступа нет.
     """
     if getattr(sys, 'frozen', False):
-        exe_dir = Path(sys.executable).resolve().parent
+        exe_dir = Path(sys.executable).absolute().parent
         # Если exe лежит в dist/ — поднимаемся на уровень выше к корню проекта
         if exe_dir.name.lower() == 'dist' and (exe_dir.parent / 'wb-photo-report').exists():
             return exe_dir.parent
         return exe_dir
     # обычный запуск python -m wb_otbor / python run_otbor.py
-    return Path(__file__).resolve().parent.parent
+    return Path(__file__).absolute().parent.parent
 
 
 BASE_DIR = _resolve_base_dir()
@@ -64,6 +69,18 @@ MIN_SHOWS = 1200
 # Планировщик задач
 TASK_NAME = "WB_Otbor_AutoRun"
 
+# UNC-ремап для путей, которые прописываются в /TR у schtasks.
+# Windows при открытии DFS-путей \\kari.local\public\... выдаёт Python
+# каноническое имя \\fs05\all\..., и планировщик сохраняет путь в такой форме.
+# К серверу \\fs05 у учётной записи планировщика может не быть доступа,
+# поэтому перед вызовом schtasks подменяем префикс обратно на DFS.
+#   ключ = канонический префикс (как даёт Path)
+#   значение = пользовательский префикс (DFS / то, что реально доступно)
+# Сравнение case-insensitive.
+SCHEDULER_UNC_REMAP = {
+    r"\\fs05\all": r"\\kari.local\public\all",
+}
+
 # Имена exe-файлов после сборки через build_exe.py
 RUNNER_EXE_NAME = "wb_otbor_runner.exe"
 GUI_EXE_NAME = "wb_otbor_gui.exe"
@@ -78,7 +95,10 @@ ANALYTICS_AUTO = "-5183358607"
 def find_runner_exe() -> Path | None:
     """
     Ищет скомпилированный exe в типовых местах относительно BASE_DIR.
-    Возвращает Path, если найден, иначе None.
+    Возвращает Path как есть, БЕЗ .resolve() — чтобы сохранить исходный
+    UNC-путь (например, \\\\kari.local\\public\\...). Иначе .resolve()
+    канонизирует UNC к форме \\\\fs05\\all\\..., которая может быть
+    недоступна учётной записи планировщика задач.
     """
     candidates = [
         BASE_DIR / RUNNER_EXE_NAME,                # рядом с проектом (после копирования из dist)
@@ -86,7 +106,7 @@ def find_runner_exe() -> Path | None:
     ]
     for p in candidates:
         if p.exists():
-            return p.resolve()
+            return p
     return None
 
 
