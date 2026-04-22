@@ -38,7 +38,19 @@ except ImportError as exc:
 # sys.stdout.reconfigure(encoding="utf-8")
 
 API_URL = "https://content-api.wildberries.ru/content/v2/get/cards/list"
-DEFAULT_ENV_FILE = ".env"
+
+# По умолчанию .env ищется в корне проекта (AutomatedPicking/.env),
+# то есть на уровень ВЫШЕ этого скрипта (он лежит в wb-photo-report/).
+# Если не найден — fallback на локальный .env рядом со скриптом
+# (для обратной совместимости со старой структурой).
+_PROJECT_ROOT_ENV = Path(__file__).resolve().parent.parent / ".env"
+_LOCAL_ENV = Path(__file__).resolve().parent / ".env"
+if _PROJECT_ROOT_ENV.exists():
+    DEFAULT_ENV_FILE = str(_PROJECT_ROOT_ENV)
+elif _LOCAL_ENV.exists():
+    DEFAULT_ENV_FILE = str(_LOCAL_ENV)
+else:
+    DEFAULT_ENV_FILE = str(_PROJECT_ROOT_ENV)  # рекомендуемое имя в сообщении об ошибке
 DEFAULT_PAGE_LIMIT = 100
 REQUEST_DELAY_SECONDS = 0.65
 MAX_RETRIES = 4

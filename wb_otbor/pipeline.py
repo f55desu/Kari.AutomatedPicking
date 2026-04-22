@@ -127,6 +127,7 @@ def run_full_pipeline(use_photo_cache: bool = False,
         _log_both(log, logger.info, "[4/4] Отправка в Telegram...")
         tg_id = getattr(config, 'TALDYKIN_ID', None) or getattr(config, 'F55_ID', None)
         tg_id2 = getattr(config, 'ANALYTICS_AUTO', None)
+        tg_id3 = getattr(config, 'ANALYTICS_AUTO2', None)
         if tg_id is None:
             raise ValueError("В config.py не задан chat_id (TALDYKIN_ID / F55_ID).")
         ok = telegram_bot_sender.telegram_sendFile(
@@ -135,6 +136,9 @@ def run_full_pipeline(use_photo_cache: bool = False,
         # ok = telegram_bot_sender.telegram_sendFile(
         #     file_path=output_path, chat_id=tg_id2, message=""
         # )
+        ok = telegram_bot_sender.telegram_sendFile(
+            file_path=output_path, chat_id=tg_id3, message=""
+        )
         if ok:
             _log_both(log, logger.info, f"[4/4] Telegram OK (chat_id={tg_id}).")
         else:

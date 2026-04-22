@@ -8,7 +8,6 @@ wb_photo_report_*
 wb_photo_report.env*
 *.env
 wb-photo-report.zip
-Отбор*
 Otbor*
 otbor*
 photo_cache.xlsx
@@ -21,5 +20,5 @@ Unique Atrs.xlsx
 *.exe
 *.spec
 settings.json
-*.xlsx
 *.log
+Отчёт*

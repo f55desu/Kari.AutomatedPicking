@@ -1,4 +1,5 @@
 """Конфигурация путей и параметров."""
+import os
 import sys
 from pathlib import Path
 
@@ -31,22 +32,25 @@ BASE_DIR = _resolve_base_dir()
 
 def _find_env_file() -> Path:
     """
-    Ищет .env в нескольких местах, чтобы работать и из корня, и из dist/.
+    Ищет .env. Приоритет — РЯДОМ с exe (в корне проекта).
+    Старое расположение wb-photo-report/.env остаётся как fallback для
+    обратной совместимости.
     """
     candidates = [
-        BASE_DIR / 'wb-photo-report' / '.env',
-        BASE_DIR / '.env',
-        BASE_DIR.parent / 'wb-photo-report' / '.env',  # если exe в dist/
+        BASE_DIR / '.env',                              # основное — рядом с exe
+        BASE_DIR / 'wb-photo-report' / '.env',          # fallback (старое)
+        BASE_DIR.parent / '.env',                       # если exe в dist/
+        BASE_DIR.parent / 'wb-photo-report' / '.env',   # совсем старое
     ]
     for p in candidates:
         if p.exists():
             return p
-    # Возвращаем стандартный (для внятного сообщения об ошибке)
+    # Возвращаем «рекомендуемое» расположение (для внятной ошибки в логах)
     return candidates[0]
 
 
 # Файлы
-TEMPLATE_FILE = BASE_DIR / 'Отбор 11.04.xlsx'
+TEMPLATE_FILE = BASE_DIR / 'Отбор Шаблон.xlsx'
 PHOTO_CACHE_FILE = BASE_DIR / 'photo_cache.xlsx'
 ENV_FILE = _find_env_file()
 
@@ -88,9 +92,16 @@ GUI_EXE_NAME = "wb_otbor_gui.exe"
 # Относительный путь к CLI-скрипту (для запуска через python)
 RUNNER_SCRIPT_NAME = "run_otbor.py"
 
-F55_ID = "421762273"
-TALDYKIN_ID = "6917999439"
-ANALYTICS_AUTO = "-5183358607"
+# --- Telegram chat IDs: читаются из .env, а не хранятся в репозитории ---
+# Загружаем .env в os.environ (локальный импорт, чтобы избежать циркулярных импортов
+# при первичной загрузке пакета: _wb_content не зависит от config).
+from ._wb_content import load_env_file as _load_env_file  # noqa: E402
+_load_env_file(ENV_FILE)
+
+F55_ID         = os.environ.get("F55_ID", "").strip()
+TALDYKIN_ID    = os.environ.get("TALDYKIN_ID", "").strip()
+ANALYTICS_AUTO = os.environ.get("ANALYTICS_AUTO", "").strip()
+ANALYTICS_AUTO2 = os.environ.get("ANALYTICS_AUTO2", "").strip()
 
 def find_runner_exe() -> Path | None:
     """
