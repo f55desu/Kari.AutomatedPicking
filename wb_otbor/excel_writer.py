@@ -120,7 +120,8 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
         raise FileNotFoundError(f"Шаблон не найден: {template_path}")
 
     required_cols = {'Артикул', 'Показы', 'Клики', 'Заказы',
-                     'Количество фото (-2 от скрипта)'}
+                     'Количество фото (-2 от скрипта)',
+                     'ФИО менеджера'}
     missing = required_cols - set(df_base.columns)
     if missing:
         logger.error(f"В df_base отсутствуют столбцы: {missing}")
@@ -135,9 +136,38 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
 
     output_date = end_date.strftime('%d.%m')
 
+    # ===== НОВАЯ РАСКЛАДКА КОЛОНОК (после вставки 'ФИО менеджера' на позицию I) =====
+    #  A=1  Артикул
+    #  B=2  Артикул WB
+    #  C=3  Бизнес-группа
+    #  D=4  Розничный отдел
+    #  E=5  Группа
+    #  F=6  Сезон
+    #  G=7  Бренд
+    #  H=8  Ответственный за группу
+    #  I=9  ФИО менеджера         ← новая
+    #  J=10 Коллекция
+    #  K=11 Показы
+    #  L=12 Клики
+    #  M=13 Заказы
+    #  N=14 CTR          (формула)
+    #  O=15 Конверсия    (формула)
+    #  P=16 Остаток
+    #  Q=17 Дистрибуция
+    #  R=18 Техничка
+    #  S=19 Отбор для поиска        (формула / текст)
+    #  T=20 Отбор по CTR            (формула)
+    #  U=21 Отбор по CR             (формула)
+    #  V=22 Отбор для поиска (вг)   (формула)
+    #  W=23 Отбор по CTR (вг)       (формула)
+    #  X=24 Отбор по CR  (вг)       (формула)
+    #  Y=25 Количество фото (-2)
+    # =================================================================================
+    TOTAL_COLS = 25
+
     # Сохраняем стили из шаблонной строки 3
     row3_styles = {}
-    for col in range(1, 25):
+    for col in range(1, TOTAL_COLS + 1):
         cell = ws.cell(row=3, column=col)
         row3_styles[col] = {
             'font': copy(cell.font),
@@ -149,7 +179,7 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
 
     # Очищаем все строки данных
     for row in range(3, ws.max_row + 1):
-        for col in range(1, 25):
+        for col in range(1, TOTAL_COLS + 1):
             ws.cell(row=row, column=col).value = None
 
     # Имена столбцов из df_base
@@ -168,7 +198,7 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
     for idx, row_data in df_base.reset_index(drop=True).iterrows():
         r = 3 + idx
 
-        # A–I: справочные данные
+        # A–J: справочные данные
         ws.cell(row=r, column=1).value = str(row_data['Артикул'])
         ws.cell(row=r, column=2).value = (
             str(int(float(row_data['Артикул WB'])))
@@ -180,71 +210,75 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
         ws.cell(row=r, column=6).value = row_data['Сезон']
         ws.cell(row=r, column=7).value = row_data['Бренд']
         ws.cell(row=r, column=8).value = row_data['Ответственный за группу']
-        ws.cell(row=r, column=9).value = row_data['Коллекция']
+        # I=9: ФИО менеджера (новая колонка из Распределение категорий.xlsx)
+        ws.cell(row=r, column=9).value = row_data.get('ФИО менеджера', 'Не определено')
+        ws.cell(row=r, column=10).value = row_data['Коллекция']
 
-        # J–L: маркетинг
-        ws.cell(row=r, column=10).value = int(row_data['Показы'])
-        ws.cell(row=r, column=11).value = int(row_data['Клики'])
-        ws.cell(row=r, column=12).value = int(row_data['Заказы'])
+        # K–M: маркетинг
+        ws.cell(row=r, column=11).value = int(row_data['Показы'])
+        ws.cell(row=r, column=12).value = int(row_data['Клики'])
+        ws.cell(row=r, column=13).value = int(row_data['Заказы'])
 
-        # M, N: формулы CTR и Конверсии
-        ws.cell(row=r, column=13).value = f'=IFERROR(K{r}/J{r},0)'
+        # N, O: формулы CTR и Конверсии (было M, N → сдвиг на +1)
         ws.cell(row=r, column=14).value = f'=IFERROR(L{r}/K{r},0)'
+        ws.cell(row=r, column=15).value = f'=IFERROR(M{r}/L{r},0)'
 
-        # O: Остаток
-        ws.cell(row=r, column=15).value = int(row_data[остаток_col])
+        # P: Остаток
+        ws.cell(row=r, column=16).value = int(row_data[остаток_col])
 
-        # P: Дистрибуция (как decimal для формата 0.0%)
-        ws.cell(row=r, column=16).value = row_data[distrib_col] / 100
+        # Q: Дистрибуция (как decimal для формата 0.0%)
+        ws.cell(row=r, column=17).value = row_data[distrib_col] / 100
 
-        # Q и R: Техничка и Отбор для поиска
+        # R и S: Техничка и Отбор для поиска
         stock = row_data[остаток_col]
         distrib = row_data[distrib_col]
         shows = row_data['Показы']
 
         if stock < min_stock or distrib < min_distrib:
-            ws.cell(row=r, column=18).value = 'Мало остатка'
-            ws.cell(row=r, column=17).value = 0
+            ws.cell(row=r, column=19).value = 'Мало остатка'
+            ws.cell(row=r, column=18).value = 0
         elif shows < min_shows:
-            ws.cell(row=r, column=18).value = 'Мало показов'
-            ws.cell(row=r, column=17).value = 0
+            ws.cell(row=r, column=19).value = 'Мало показов'
+            ws.cell(row=r, column=18).value = 0
         else:
-            ws.cell(row=r, column=18).value = (
-                f'=IF(OR(M{r}<$S$1*0.5,N{r}<$T$1*0.5),'
+            # $S$1 → $T$1, $T$1 → $U$1; M3 → N3, N3 → O3
+            ws.cell(row=r, column=19).value = (
+                f'=IF(OR(N{r}<$T$1*0.5,O{r}<$U$1*0.5),'
                 f'"код для проверки","нормальный код")'
             )
-            ws.cell(row=r, column=17).value = 1
+            ws.cell(row=r, column=18).value = 1
 
-        # S–W: формулы отбора
-        ws.cell(row=r, column=19).value = (
-            f'=IF(M{r}<$S$1*0.5,"Низшая четверть",'
-            f'IF(M{r}<$S$1,"Вторая четверть","Больше половины"))'
-        )
+        # T–X: формулы отбора (было S–W, сдвиг +1)
+        # Общий сдвиг в ссылках: J→K, K→L, L→M, M→N, N→O, Q→R
         ws.cell(row=r, column=20).value = (
             f'=IF(N{r}<$T$1*0.5,"Низшая четверть",'
             f'IF(N{r}<$T$1,"Вторая четверть","Больше половины"))'
         )
         ws.cell(row=r, column=21).value = (
-            f'=IF(OR(M{r}<SUMIFS(K:K,Q:Q,1,E:E,E{r})/SUMIFS(J:J,Q:Q,1,E:E,E{r})*0.5,'
-            f'N{r}<SUMIFS(L:L,Q:Q,1,E:E,E{r})/SUMIFS(K:K,Q:Q,1,E:E,E{r})*0.5),'
-            f'"код для проверки","нормальный код")'
+            f'=IF(O{r}<$U$1*0.5,"Низшая четверть",'
+            f'IF(O{r}<$U$1,"Вторая четверть","Больше половины"))'
         )
         ws.cell(row=r, column=22).value = (
-            f'=IF(M{r}<SUMIFS(K:K,Q:Q,1,E:E,E{r})/SUMIFS(J:J,Q:Q,1,E:E,E{r})*0.5,'
-            f'"Низшая четверть",IF(M{r}<SUMIFS(K:K,Q:Q,1,E:E,E{r})/SUMIFS(J:J,Q:Q,1,E:E,E{r}),'
-            f'"Вторая четверть","Больше половины"))'
+            f'=IF(OR(N{r}<SUMIFS(L:L,R:R,1,E:E,E{r})/SUMIFS(K:K,R:R,1,E:E,E{r})*0.5,'
+            f'O{r}<SUMIFS(M:M,R:R,1,E:E,E{r})/SUMIFS(L:L,R:R,1,E:E,E{r})*0.5),'
+            f'"код для проверки","нормальный код")'
         )
         ws.cell(row=r, column=23).value = (
-            f'=IF(N{r}<SUMIFS(L:L,Q:Q,1,E:E,E{r})/SUMIFS(K:K,Q:Q,1,E:E,E{r})*0.5,'
-            f'"Низшая четверть",IF(N{r}<SUMIFS(L:L,Q:Q,1,E:E,E{r})/SUMIFS(K:K,Q:Q,1,E:E,E{r}),'
+            f'=IF(N{r}<SUMIFS(L:L,R:R,1,E:E,E{r})/SUMIFS(K:K,R:R,1,E:E,E{r})*0.5,'
+            f'"Низшая четверть",IF(N{r}<SUMIFS(L:L,R:R,1,E:E,E{r})/SUMIFS(K:K,R:R,1,E:E,E{r}),'
+            f'"Вторая четверть","Больше половины"))'
+        )
+        ws.cell(row=r, column=24).value = (
+            f'=IF(O{r}<SUMIFS(M:M,R:R,1,E:E,E{r})/SUMIFS(L:L,R:R,1,E:E,E{r})*0.5,'
+            f'"Низшая четверть",IF(O{r}<SUMIFS(M:M,R:R,1,E:E,E{r})/SUMIFS(L:L,R:R,1,E:E,E{r}),'
             f'"Вторая четверть","Больше половины"))'
         )
 
-        # X: Количество фото (-2)
-        ws.cell(row=r, column=24).value = int(row_data['Количество фото (-2 от скрипта)'])
+        # Y: Количество фото (-2)
+        ws.cell(row=r, column=25).value = int(row_data['Количество фото (-2 от скрипта)'])
 
         # Применяем стили из шаблонной строки 3
-        for col in range(1, 25):
+        for col in range(1, TOTAL_COLS + 1):
             cell = ws.cell(row=r, column=col)
             style = row3_styles.get(col)
             if style:
@@ -254,17 +288,17 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
                 cell.alignment = copy(style['alignment'])
                 cell.number_format = style['number_format']
 
-    # Обновляем формулы строки 1 под новый диапазон
-    ws['J1'] = f'=SUBTOTAL(9,J3:J{last_data_row})'
-    ws['K1'] = f'=SUBTOTAL(9,K3:K{last_data_row})'
-    ws['L1'] = f'=SUBTOTAL(9,L3:L{last_data_row})'
-    ws['M1'] = '=K1/J1'
-    ws['N1'] = '=L1/K1'
-    ws['S1'] = '=SUMIF(Q:Q,1,K:K)/SUMIF(Q:Q,1,J:J)'
-    ws['T1'] = '=SUMIF(Q:Q,1,L:L)/SUMIF(Q:Q,1,K:K)'
+    # Обновляем формулы строки 1 под новый диапазон (сдвиг J→K, K→L, L→M, M→N, N→O, S→T, T→U)
+    ws['K1'] = f'=SUBTOTAL(9,K3:K{last_data_row})'    # Показы
+    ws['L1'] = f'=SUBTOTAL(9,L3:L{last_data_row})'    # Клики
+    ws['M1'] = f'=SUBTOTAL(9,M3:M{last_data_row})'    # Заказы
+    ws['N1'] = '=L1/K1'                                # CTR
+    ws['O1'] = '=M1/L1'                                # Конверсия
+    ws['T1'] = '=SUMIF(R:R,1,L:L)/SUMIF(R:R,1,K:K)'   # CTR Технички
+    ws['U1'] = '=SUMIF(R:R,1,M:M)/SUMIF(R:R,1,L:L)'   # CR Технички
 
-    # Обновляем заголовок столбца Остаток
-    ws.cell(row=2, column=15).value = f'Остаток на {output_date}'
+    # Обновляем заголовок столбца Остаток (теперь колонка P=16)
+    ws.cell(row=2, column=16).value = f'Остаток на {output_date}'
 
     # Добавляем второй лист с применёнными фильтрами
     try:

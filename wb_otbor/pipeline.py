@@ -10,6 +10,7 @@ from . import sql_loader
 from . import wb_api
 from . import excel_writer
 from . import telegram_bot_sender
+from . import manager_mapping
 from .logging_setup import get_logger
 
 
@@ -68,6 +69,40 @@ def run_full_pipeline(use_photo_cache: bool = False,
         _log_both(log, logger.error, f"[1/4] SQL FAIL: {exc}")
         logger.exception("Traceback стадии 1:")
         raise PipelineStageError(f"SQL: {exc}") from exc
+
+    # --- Подтягиваем ФИО менеджера из 'Распределение категорий.xlsx' ---
+    # Вставляем колонку СРАЗУ ПОСЛЕ 'Ответственный за группу', чтобы сохранить
+    # порядок столбцов в итоговом Excel-файле.
+    try:
+        mapping = manager_mapping.load_mapping()
+        df_base['ФИО менеджера'] = df_base['Группа'].apply(
+            lambda g: manager_mapping.get_manager(g, mapping)
+        )
+        # Перемещаем колонку на позицию после 'Ответственный за группу'
+        cols = list(df_base.columns)
+        cols.remove('ФИО менеджера')
+        insert_after = cols.index('Ответственный за группу') + 1
+        cols.insert(insert_after, 'ФИО менеджера')
+        df_base = df_base[cols]
+
+        n_unknown = (df_base['ФИО менеджера'] == manager_mapping.UNKNOWN).sum()
+        n_known = len(df_base) - n_unknown
+        _log_both(log, logger.info,
+                  f"ФИО менеджера подтянуто: {n_known}/{len(df_base)} строк, "
+                  f"не определено — {n_unknown}.")
+    except Exception as exc:
+        # Не критично — просто проставим 'Не определено' везде и идём дальше
+        _log_both(log, logger.warning,
+                  f"Не удалось подтянуть ФИО менеджера: {exc}. "
+                  f"Все строки получат '{manager_mapping.UNKNOWN}'.")
+        logger.exception("Traceback шага подтягивания ФИО менеджера:")
+        if 'ФИО менеджера' not in df_base.columns:
+            df_base['ФИО менеджера'] = manager_mapping.UNKNOWN
+            cols = list(df_base.columns)
+            cols.remove('ФИО менеджера')
+            insert_after = cols.index('Ответственный за группу') + 1
+            cols.insert(insert_after, 'ФИО менеджера')
+            df_base = df_base[cols]
 
     # -------------------- Стадия 2: WB API (фото) ----------------------
     try:
@@ -136,9 +171,9 @@ def run_full_pipeline(use_photo_cache: bool = False,
         # ok = telegram_bot_sender.telegram_sendFile(
         #     file_path=output_path, chat_id=tg_id2, message=""
         # )
-        ok = telegram_bot_sender.telegram_sendFile(
-            file_path=output_path, chat_id=tg_id3, message=""
-        )
+        # ok = telegram_bot_sender.telegram_sendFile(
+        #     file_path=output_path, chat_id=tg_id3, message=""
+        # )
         if ok:
             _log_both(log, logger.info, f"[4/4] Telegram OK (chat_id={tg_id}).")
         else:

@@ -46,6 +46,7 @@ COMMON_HIDDEN_IMPORTS = [
     'wb_otbor.scheduler',
     'wb_otbor.settings',
     'wb_otbor.logging_setup',
+    'wb_otbor.manager_mapping',
     'wb_otbor.telegram_bot_sender',
 ]
 
