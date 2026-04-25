@@ -217,6 +217,27 @@ class OtborGUI:
             return
 
         use_cache = self.use_cache_var.get()
+
+        # Pre-flight: если стоит галочка «использовать кэш», но файла нет —
+        # явно предупреждаем пользователя и спрашиваем подтверждение.
+        if use_cache:
+            from wb_otbor import wb_api
+            if not wb_api.cache_exists():
+                proceed = messagebox.askyesno(
+                    "Кэш фото не найден",
+                    f"Файл photo_cache.xlsx отсутствует в папке:\n"
+                    f"{config.PHOTO_CACHE_FILE}\n\n"
+                    f"Чтобы использовать кэш, его нужно сначала создать —\n"
+                    f"для этого требуется один прогон с обращением к WB API\n"
+                    f"(5–15 минут).\n\n"
+                    f"Запустить сейчас полный прогон через API?\n"
+                    f"После него кэш создастся, и следующие запуски с\n"
+                    f"галочкой будут быстрыми."
+                )
+                if not proceed:
+                    self.log("Запуск отменён пользователем (нет кэша).")
+                    return
+
         self.run_btn.configure(state='disabled', text='Выполняется...')
         self.log("=" * 60)
         self.log(f"Старт ручного запуска. use_cache={use_cache}")

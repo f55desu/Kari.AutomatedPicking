@@ -121,7 +121,8 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
 
     required_cols = {'Артикул', 'Показы', 'Клики', 'Заказы',
                      'Количество фото (-2 от скрипта)',
-                     'ФИО менеджера'}
+                     'ФИО менеджера',
+                     'Дата создания на WB'}
     missing = required_cols - set(df_base.columns)
     if missing:
         logger.error(f"В df_base отсутствуют столбцы: {missing}")
@@ -162,8 +163,9 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
     #  W=23 Отбор по CTR (вг)       (формула)
     #  X=24 Отбор по CR  (вг)       (формула)
     #  Y=25 Количество фото (-2)
+    #  Z=26 Дата создания на WB         (формат d.m.YYYY, текст)
     # =================================================================================
-    TOTAL_COLS = 25
+    TOTAL_COLS = 26
 
     # Сохраняем стили из шаблонной строки 3
     row3_styles = {}
@@ -276,6 +278,9 @@ def write_otbor_file(df_base: pd.DataFrame, end_date, template_path: Path,
 
         # Y: Количество фото (-2)
         ws.cell(row=r, column=25).value = int(row_data['Количество фото (-2 от скрипта)'])
+
+        # Z: Дата создания на WB (строка вида '25.4.2026' или пусто)
+        ws.cell(row=r, column=26).value = str(row_data.get('Дата создания на WB', '') or '')
 
         # Применяем стили из шаблонной строки 3
         for col in range(1, TOTAL_COLS + 1):

@@ -104,12 +104,12 @@ def run_full_pipeline(use_photo_cache: bool = False,
             cols.insert(insert_after, 'ФИО менеджера')
             df_base = df_base[cols]
 
-    # -------------------- Стадия 2: WB API (фото) ----------------------
+    # -------------------- Стадия 2: WB API (фото + дата создания) ------
     try:
         _log_both(log, logger.info, "=" * 60)
-        _log_both(log, logger.info, "[2/4] Получение количества фото...")
+        _log_both(log, logger.info, "[2/4] Получение количества фото и даты создания...")
         nm_ids = df_base['Артикул WB'].dropna().unique().tolist()
-        photo_counts = wb_api.get_photo_counts(
+        photo_data = wb_api.get_photo_data(
             nm_ids,
             use_cache=use_photo_cache,
             log=lambda m: _log_both(log, logger.info, m),
@@ -122,14 +122,43 @@ def run_full_pipeline(use_photo_cache: bool = False,
                 key = str(int(float(wb_id)))
             except (TypeError, ValueError):
                 return 0
-            raw = photo_counts.get(key, 0)
-            return max(raw - 2, 0)
+            rec = photo_data.get(key, {})
+            return max(int(rec.get('photos', 0)) - 2, 0)
+
+        def _format_created_at(wb_id):
+            """ISO-дата 'YYYY-MM-DDTHH:MM:SSZ' → 'DD.MM.YYYY' (с ведущими нулями).
+            Если nmID не найден или дата пустая — возвращаем пустую строку."""
+            if pd.isna(wb_id) or str(wb_id).strip() == '':
+                return ''
+            try:
+                key = str(int(float(wb_id)))
+            except (TypeError, ValueError):
+                return ''
+            iso = (photo_data.get(key) or {}).get('created_at', '') or ''
+            if not iso:
+                return ''
+            # Пытаемся разобрать. Формат WB: '2024-01-15T10:30:00Z' или с микросекундами.
+            from datetime import datetime as _dt
+            for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ',
+                        '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S'):
+                try:
+                    d = _dt.strptime(iso, fmt)
+                    return d.strftime('%d.%m.%Y')
+                except ValueError:
+                    continue
+            # Если не распарсили — оставляем как есть (для отладки)
+            return iso
 
         df_base['Количество фото (-2 от скрипта)'] = df_base['Артикул WB'].apply(_photo_minus2)
+        df_base['Дата создания на WB']             = df_base['Артикул WB'].apply(_format_created_at)
 
         # Сортировка по Показам по убыванию
         df_base = df_base.sort_values('Показы', ascending=False).reset_index(drop=True)
-        _log_both(log, logger.info, "[2/4] WB API OK (сортировка по Показам DESC применена).")
+
+        n_with_date = (df_base['Дата создания на WB'] != '').sum()
+        _log_both(log, logger.info,
+                  f"[2/4] WB API OK. Дата создания подтянута для "
+                  f"{n_with_date}/{len(df_base)} строк.")
     except Exception as exc:
         _log_both(log, logger.error, f"[2/4] WB API FAIL: {exc}")
         logger.exception("Traceback стадии 2:")
