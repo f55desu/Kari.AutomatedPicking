@@ -200,9 +200,9 @@ def run_full_pipeline(use_photo_cache: bool = False,
         # ok = telegram_bot_sender.telegram_sendFile(
         #     file_path=output_path, chat_id=tg_id2, message=""
         # )
-        # ok = telegram_bot_sender.telegram_sendFile(
-        #     file_path=output_path, chat_id=tg_id3, message=""
-        # )
+        ok = telegram_bot_sender.telegram_sendFile(
+            file_path=output_path, chat_id=tg_id3, message=""
+        )
         if ok:
             _log_both(log, logger.info, f"[4/4] Telegram OK (chat_id={tg_id}).")
         else:

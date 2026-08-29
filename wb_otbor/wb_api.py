@@ -130,6 +130,7 @@ def fetch_photos_from_api(target_nm_ids, timeout: int = 60, log=print) -> dict:
     cursor_payload = {"limit": 100}
     total_fetched = 0
     page = 0
+    _first_card_dumped = False  # debug-дамп первой карточки в лог
 
     log(f"Целевых артикулов WB: {len(target_set)}")
     start = time.time()
@@ -142,6 +143,31 @@ def fetch_photos_from_api(target_nm_ids, timeout: int = 60, log=print) -> dict:
         cards = data.get("cards", [])
         if not cards:
             break
+
+        # === DEBUG: один раз дампим все поля первой карточки ===
+        # Это даёт возможность убедиться, какие именно ключи возвращает WB API.
+        if not _first_card_dumped and cards:
+            first = cards[0]
+            top_keys = list(first.keys())
+            logger.info(f"DEBUG: WB API вернул карточку с полями верхнего уровня: {top_keys}")
+            # Полный дамп первой карточки в DEBUG (попадёт в logs/wb_otbor.log)
+            import json as _json
+            try:
+                logger.debug(f"DEBUG full card[0]:\n{_json.dumps(first, ensure_ascii=False, indent=2)[:4000]}")
+            except Exception:
+                logger.debug(f"DEBUG card[0] (не сериализуется): {first!r}"[:2000])
+            # Подсветка полей с датами
+            date_like = {k: first[k] for k in first
+                         if 'created' in k.lower() or 'updated' in k.lower()
+                         or k.lower() in ('date',)}
+            if date_like:
+                log(f"DEBUG: поля-даты в первой карточке: {date_like}")
+                logger.info(f"DEBUG: поля-даты: {date_like}")
+            else:
+                log(f"DEBUG: в первой карточке НЕТ полей с датами!")
+                logger.warning(f"DEBUG: в первой карточке НЕТ полей с датами. "
+                               f"Полный список ключей: {top_keys}")
+            _first_card_dumped = True
 
         for card in cards:
             nm_id_str = str(card.get("nmID", ""))
